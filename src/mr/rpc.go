@@ -7,6 +7,7 @@ package mr
 //
 
 import (
+	"fmt"
 	"os"
 	"strconv"
 )
@@ -19,11 +20,14 @@ const (
 	REDUCE
 )
 
+const (
+	MAP_TEMP_DIR = "./map-tmp-output/"
+)
+
 type Task struct {
-	Type      TaskType
-	FilePath  string
-	Id        int
-	NumReduce int
+	Type        TaskType
+	MapFilePath string
+	Id          int
 }
 
 type TaskRequest struct {
@@ -31,7 +35,9 @@ type TaskRequest struct {
 }
 
 type TaskReply struct {
-	Task Task
+	Task      Task
+	NumReduce int
+	NumMap    int
 }
 
 type TaskDoneRequest struct {
@@ -40,6 +46,10 @@ type TaskDoneRequest struct {
 
 type TaskDoneReply struct {
 	// nothing to reply
+}
+
+func GetReduceFilePath(map_id int, reduce_id int) string {
+	return fmt.Sprintf("%smr-%d-%d", MAP_TEMP_DIR, map_id, reduce_id)
 }
 
 // Cook up a unique-ish UNIX-domain socket name

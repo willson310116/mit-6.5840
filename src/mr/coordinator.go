@@ -36,9 +36,9 @@ func (c *Coordinator) SwtichMode() {
 		// create Reduce tasks
 		for i := 0; i < c.nReduce; i++ {
 			task := Task{
-				Type:      REDUCE,
-				Id:        i,
-				NumReduce: c.nReduce}
+				Type: REDUCE,
+				Id:   i,
+			}
 			c.TaskChannel <- task
 		}
 	} else if c.Mode == InREDUCE {
@@ -48,13 +48,20 @@ func (c *Coordinator) SwtichMode() {
 }
 
 func (c *Coordinator) AssignTask(args *TaskRequest, reply *TaskReply) error {
-	if c.doneMap == c.nMap {
+	if (c.Mode == InMAP && c.doneMap == c.nMap) ||
+		(c.Mode == InREDUCE && c.doneReduce == c.nReduce) {
 		c.SwtichMode()
 	}
-	assignedTask := <-c.TaskChannel
-	fmt.Printf("Server assigning %v to pid %v\n", assignedTask.FilePath, args.WorkerPid)
-	reply.Task = assignedTask
-	c.TaskAssined[args.WorkerPid] = assignedTask
+	if c.Mode == DONE {
+		fmt.Printf("All tasks are done")
+	} else {
+		assignedTask := <-c.TaskChannel
+		fmt.Printf("Server assigning %v to pid %v\n", assignedTask.MapFilePath, args.WorkerPid)
+		reply.Task = assignedTask
+		reply.NumMap = c.nMap
+		reply.NumReduce = c.nReduce
+		c.TaskAssined[args.WorkerPid] = assignedTask
+	}
 	return nil
 }
 
@@ -116,10 +123,9 @@ func MakeCoordinator(files []string, nReduce int) *Coordinator {
 	// create Map tasks and send into task channel
 	for i, file := range files {
 		task := Task{
-			Type:      MAP,
-			FilePath:  file,
-			Id:        i,
-			NumReduce: nReduce}
+			Type:        MAP,
+			MapFilePath: file,
+			Id:          i}
 		c.TaskChannel <- task
 	}
 

@@ -7,6 +7,8 @@ import (
 	"log"
 	"net/rpc"
 	"os"
+	"sort"
+	"strings"
 	"time"
 )
 
@@ -22,10 +24,6 @@ type ByKey []KeyValue
 func (a ByKey) Len() int           { return len(a) }
 func (a ByKey) Swap(i, j int)      { a[i], a[j] = a[j], a[i] }
 func (a ByKey) Less(i, j int) bool { return a[i].Key < a[j].Key }
-
-const (
-	MAP_TEMP_DIR = "./map-tmp-output/"
-)
 
 // use ihash(key) % NReduce to choose the reduce
 // task number for each KeyValue emitted by Map.
@@ -60,7 +58,7 @@ func ReadFile(filepath string) []byte {
 
 func WriteFilesForReduce(hashKvaMap map[int][]KeyValue, nReduce int, taskId int) {
 	for i := 0; i < nReduce; i++ {
-		outputName := fmt.Sprintf("./map-tmp-output/mr-%d-%d", taskId, i)
+		outputName := fmt.Sprintf("%smr-%d-%d", MAP_TEMP_DIR, taskId, i)
 		outputFile, err := os.Create(outputName)
 		if err != nil {
 			log.Fatalf("cannot create %v", outputFile)
@@ -72,7 +70,7 @@ func WriteFilesForReduce(hashKvaMap map[int][]KeyValue, nReduce int, taskId int)
 	}
 }
 
-func ProcessMapTask(mapf func(string, string) []KeyValue, task Task, pid int) {
+func ProcessMapTask(mapf func(string, string) []KeyValue, reply TaskReply, pid int) {
 	defer func() {
 		args := TaskDoneRequest{pid}
 		reply := TaskDoneReply{}
@@ -81,10 +79,62 @@ func ProcessMapTask(mapf func(string, string) []KeyValue, task Task, pid int) {
 			fmt.Println("Coordinator.NotifyTaskDone fails")
 		}
 	}()
-	content := ReadFile(task.FilePath)
-	kva := mapf(task.FilePath, string(content))
-	hashKvaMap := PartitionKva(kva, task.NumReduce)
-	WriteFilesForReduce(hashKvaMap, task.NumReduce, task.Id)
+	content := ReadFile(reply.Task.MapFilePath)
+	kva := mapf(reply.Task.MapFilePath, string(content))
+	hashKvaMap := PartitionKva(kva, reply.NumReduce)
+	WriteFilesForReduce(hashKvaMap, reply.NumReduce, reply.Task.Id)
+}
+
+func ProcessReduceTask(reducef func(string, []string) string, reply TaskReply, pid int) {
+	defer func() {
+		args := TaskDoneRequest{pid}
+		reply := TaskDoneReply{}
+		ok := call("Coordinator.NotifyTaskDone", &args, &reply)
+		if !ok {
+			fmt.Println("Coordinator.NotifyTaskDone fails")
+		}
+	}()
+	// read kv pairs from all map tmp files
+	var all_strings []string
+	for i := 0; i < reply.NumMap; i++ {
+		map_tmp_file_path := GetReduceFilePath(i, reply.Task.Id)
+		content := ReadFile(map_tmp_file_path)
+		all_strings = append(all_strings, strings.Split(string(content), "\n")...)
+	}
+	var kvas []KeyValue
+	for _, str := range all_strings {
+		// get rid of empty lines
+		if strings.TrimSpace(str) == "" {
+			continue
+		}
+		kva := strings.Split(str, "\t")
+		kvas = append(kvas, KeyValue{
+			Key:   kva[0],
+			Value: kva[1]})
+	}
+	sort.Sort(ByKey(kvas))
+	// apply reducef to aggregated values
+	i := 0
+	outputName := fmt.Sprintf("mr-out-%d", reply.Task.Id)
+	outputFile, err := os.Create(outputName)
+	if err != nil {
+		log.Fatalf("cannot create %v", outputFile)
+	}
+
+	for i < len(kvas) {
+		j := i + 1
+		for j < len(kvas) && kvas[j].Key == kvas[i].Key {
+			j += 1
+		}
+		var same_values []string
+		for k := i; k < j; k++ {
+			same_values = append(same_values, kvas[k].Value)
+		}
+		reduce_output := reducef(kvas[i].Key, same_values)
+		fmt.Fprintf(outputFile, "%v %v\n", kvas[i].Key, reduce_output)
+		i = j
+	}
+	outputFile.Close()
 }
 
 // main/mrworker.go calls this function.
@@ -109,14 +159,13 @@ func Worker(mapf func(string, string) []KeyValue,
 			switch reply.Task.Type {
 			case MAP:
 				fmt.Printf("Received MAP task\n")
-				fmt.Printf("Processing %s\n", reply.Task.FilePath)
+				fmt.Printf("Processing %s\n", reply.Task.MapFilePath)
 				// fmt.Println(reply.Task)
-				ProcessMapTask(mapf, reply.Task, pid)
+				ProcessMapTask(mapf, reply, pid)
 				// return
 			case REDUCE:
 				fmt.Printf("Received REDUCE task\n")
-				fmt.Println(reply)
-				// ProcessReplyTask(reducef, reply.Task)
+				ProcessReduceTask(reducef, reply, pid)
 				// return
 			default:
 				fmt.Println(reply)
