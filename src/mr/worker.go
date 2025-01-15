@@ -158,7 +158,7 @@ func Worker(mapf func(string, string) []KeyValue,
 		} else {
 			switch reply.Task.Type {
 			case MAP:
-				fmt.Printf("Received MAP task\n")
+				// fmt.Printf("Received MAP task\n")
 				fmt.Printf("Processing %s\n", reply.Task.MapFilePath)
 				// fmt.Println(reply.Task)
 				ProcessMapTask(mapf, reply, pid)
@@ -173,7 +173,7 @@ func Worker(mapf func(string, string) []KeyValue,
 				return
 			}
 		}
-		// time.Sleep(time.Second)
+		time.Sleep(time.Second)
 	}
 }
 

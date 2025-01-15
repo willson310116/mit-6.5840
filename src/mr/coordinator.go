@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/rpc"
 	"os"
+	"sync"
 )
 
 type Mode int
@@ -26,14 +27,19 @@ type Coordinator struct {
 	TaskAssined map[int]Task
 	doneMap     int
 	doneReduce  int
+	mu          sync.Mutex
 }
 
 // Your code here -- RPC handlers for the worker to call.
 func (c *Coordinator) SwtichMode() {
+	// fmt.Println("Switch mode")
 	// check every Map tasks are done
+	c.mu.Lock()
+	defer c.mu.Unlock()
 	if c.Mode == InMAP {
 		c.Mode = InREDUCE
 		// create Reduce tasks
+		// fmt.Println("Create Reduce tasks ...")
 		for i := 0; i < c.nReduce; i++ {
 			task := Task{
 				Type: REDUCE,
@@ -43,6 +49,7 @@ func (c *Coordinator) SwtichMode() {
 		}
 	} else if c.Mode == InREDUCE {
 		c.Mode = DONE
+		fmt.Println("All tasks are done")
 	}
 	return
 }
@@ -53,21 +60,26 @@ func (c *Coordinator) AssignTask(args *TaskRequest, reply *TaskReply) error {
 		c.SwtichMode()
 	}
 	if c.Mode == DONE {
-		fmt.Printf("All tasks are done")
-	} else {
-		assignedTask := <-c.TaskChannel
-		fmt.Printf("Server assigning %v to pid %v\n", assignedTask.MapFilePath, args.WorkerPid)
-		reply.Task = assignedTask
-		reply.NumMap = c.nMap
-		reply.NumReduce = c.nReduce
-		c.TaskAssined[args.WorkerPid] = assignedTask
+		return nil
 	}
+
+	assignedTask := <-c.TaskChannel
+	// fmt.Printf("Server assigning %v to pid %v\n", assignedTask.MapFilePath, args.WorkerPid)
+	reply.Task = assignedTask
+	reply.NumMap = c.nMap
+	reply.NumReduce = c.nReduce
+	reply.NumReduce = c.nReduce
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.TaskAssined[args.WorkerPid] = assignedTask
 	return nil
 }
 
 func (c *Coordinator) NotifyTaskDone(args *TaskDoneRequest, reply *TaskDoneReply) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
 	if task, ok := c.TaskAssined[args.WorkerPid]; ok {
-		fmt.Printf("Notified %v is done from pid: %v\n", task.Type, args.WorkerPid)
+		// fmt.Printf("Notified %v is done from pid: %v\n", task.Type, args.WorkerPid)
 		switch task.Type {
 		case MAP:
 			c.doneMap += 1
@@ -101,9 +113,10 @@ func (c *Coordinator) server() {
 // if the entire job has finished.
 func (c *Coordinator) Done() bool {
 	ret := false
-
 	// Your code here.
-
+	if c.Mode == DONE {
+		ret = true
+	}
 	return ret
 }
 
