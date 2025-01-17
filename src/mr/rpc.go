@@ -16,7 +16,8 @@ import (
 type TaskType int
 
 const (
-	MAP TaskType = iota
+	ALL_TASK_DONE TaskType = iota
+	MAP
 	REDUCE
 )
 

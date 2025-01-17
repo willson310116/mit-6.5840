@@ -19,7 +19,6 @@ const (
 )
 
 type Coordinator struct {
-	// Your definitions here.
 	nMap        int
 	nReduce     int
 	Mode        Mode
@@ -30,10 +29,8 @@ type Coordinator struct {
 	mu          sync.Mutex
 }
 
-// Your code here -- RPC handlers for the worker to call.
 func (c *Coordinator) SwtichMode() {
 	// fmt.Println("Switch mode")
-	// check every Map tasks are done
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if c.Mode == InMAP {
@@ -113,7 +110,6 @@ func (c *Coordinator) server() {
 // if the entire job has finished.
 func (c *Coordinator) Done() bool {
 	ret := false
-	// Your code here.
 	if c.Mode == DONE {
 		ret = true
 	}
@@ -142,8 +138,10 @@ func MakeCoordinator(files []string, nReduce int) *Coordinator {
 		c.TaskChannel <- task
 	}
 
-	// Your code here.
 	// close(c.TaskChannel)
+
+	// TODO: create another thread to check execution time on each task
+	// assign the task to other worker if it exceeds time limit
 
 	c.server()
 	return &c
